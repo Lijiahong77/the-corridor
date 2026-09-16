@@ -1,0 +1,1061 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>回廊 · 互动原型 v1.0</title>
+<style>
+  :root{
+    --bg:#04060a;
+    --ink:#cfd8d3;
+    --ink-dim:#8c9a94;
+    --accent:#6fe3c4;
+    --danger:#ff3b3b;
+    --line:rgba(111,227,196,.25);
+  }
+  *{box-sizing:border-box;margin:0;padding:0;}
+  html,body{height:100%;background:var(--bg);overflow:hidden;}
+  body{
+    font-family:"Noto Serif SC","Songti SC","STSong","SimSun",serif;
+    color:var(--ink);
+    -webkit-font-smoothing:antialiased;
+  }
+  #app{position:fixed;inset:0;overflow:hidden;}
+
+  /* ---------- 舞台 ---------- */
+  #stage{position:absolute;inset:0;}
+  #bg{
+    position:absolute;inset:0;width:100%;height:100%;
+    object-fit:cover;
+    filter:saturate(.85) contrast(1.06) brightness(.72);
+    transform:scale(1.04);
+    transition:opacity 1.1s ease, transform 6s ease;
+    opacity:0;
+  }
+  #bg.show{opacity:1;transform:scale(1);}
+
+  /* ---------- 视频层（事件镜/过场） ---------- */
+  #vid{
+    position:absolute;inset:0;width:100%;height:100%;
+    object-fit:cover;
+    filter:saturate(.85) contrast(1.06) brightness(.78);
+    opacity:0;transition:opacity .6s ease;pointer-events:none;
+  }
+  #vid.show{opacity:1;}
+  #skipv{
+    position:absolute;right:clamp(20px,4vw,54px);bottom:clamp(20px,4vh,44px);
+    z-index:16;pointer-events:none;
+    font-size:12px;letter-spacing:.34em;text-indent:.34em;color:var(--ink-dim);
+    opacity:0;transition:opacity .4s ease;
+  }
+  #skipv.show{opacity:1;animation:skipblink 2.6s ease-in-out infinite;}
+  @keyframes skipblink{0%,100%{opacity:.85}50%{opacity:.28}}
+  .grade{
+    position:absolute;inset:0;pointer-events:none;
+    background:
+      radial-gradient(120% 90% at 50% 40%, transparent 35%, rgba(0,0,0,.55) 78%, rgba(0,0,0,.88) 100%),
+      linear-gradient(180deg, rgba(6,22,20,.35) 0%, rgba(0,0,0,0) 35%, rgba(0,0,0,.55) 100%);
+    mix-blend-mode:multiply;
+  }
+  .tint{
+    position:absolute;inset:0;pointer-events:none;
+    background:linear-gradient(160deg, rgba(30,90,80,.20), rgba(0,0,0,0) 55%);
+    mix-blend-mode:screen;
+    opacity:.7;
+  }
+  #grain{
+    position:absolute;inset:-50%;pointer-events:none;opacity:.055;
+    background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='200' height='200'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/></filter><rect width='200' height='200' filter='url(%23n)'/></svg>");
+    animation:grainmove .6s steps(2) infinite;
+  }
+  @keyframes grainmove{
+    0%{transform:translate(0,0)}25%{transform:translate(-3%,2%)}
+    50%{transform:translate(2%,-3%)}75%{transform:translate(-2%,-2%)}100%{transform:translate(3%,3%)}
+  }
+  .flash{
+    position:absolute;inset:0;pointer-events:none;background:#fff;opacity:0;
+    transition:opacity .08s;
+  }
+  .flash.on{opacity:.85;}
+  .flash.red{background:var(--danger);}
+
+  /* ---------- UI ---------- */
+  #panel{
+    position:absolute;left:0;right:0;bottom:0;
+    padding:clamp(20px,5vh,64px) clamp(20px,7vw,120px) clamp(24px,5vh,56px);
+    background:linear-gradient(180deg, rgba(0,0,0,0) 0%, rgba(2,6,8,.72) 34%, rgba(2,6,8,.94) 100%);
+    opacity:0;transform:translateY(16px);
+    transition:opacity .7s ease, transform .7s ease;
+  }
+  #panel.show{opacity:1;transform:none;}
+  #speaker{
+    font-size:13px;letter-spacing:.42em;color:var(--accent);
+    text-transform:uppercase;margin-bottom:14px;min-height:16px;
+  }
+  #text{
+    font-size:clamp(16px,2.1vw,21px);line-height:1.95;letter-spacing:.02em;
+    max-width:60ch;white-space:pre-wrap;min-height:1.95em;
+    text-shadow:0 2px 18px rgba(0,0,0,.8);
+  }
+  #text .em{color:var(--accent);}
+  #choices{
+    margin-top:clamp(18px,3.4vh,34px);display:flex;flex-direction:column;gap:12px;
+    max-width:640px;
+  }
+  .choice{
+    text-align:left;cursor:pointer;
+    background:rgba(8,18,18,.55);
+    border:1px solid var(--line);
+    color:var(--ink);
+    font-family:inherit;
+    font-size:clamp(14px,1.7vw,17px);
+    padding:14px 20px;
+    letter-spacing:.04em;
+    position:relative;
+    transition:all .22s ease;
+    backdrop-filter:blur(2px);
+  }
+  .choice .k{color:var(--accent);opacity:.6;margin-right:12px;font-size:.85em;}
+  .choice:hover{
+    background:rgba(20,44,40,.8);border-color:var(--accent);
+    color:#fff;transform:translateX(6px);
+    box-shadow:0 0 26px rgba(111,227,196,.18), inset 0 0 20px rgba(111,227,196,.06);
+  }
+  .choice.disabled{pointer-events:none;opacity:.4;}
+
+  /* ---------- 死亡 ---------- */
+  #app.death #text{color:var(--danger);text-shadow:0 0 24px rgba(255,59,59,.5);}
+  #app.death .grade{
+    background:radial-gradient(120% 90% at 50% 40%, transparent 20%, rgba(60,0,0,.65) 80%, rgba(10,0,0,.95) 100%);
+  }
+  .rule-tag{
+    display:inline-block;margin-top:16px;font-size:13px;letter-spacing:.3em;
+    color:var(--danger);border:1px solid rgba(255,59,59,.45);padding:6px 14px;
+  }
+
+  /* ---------- 标题页 ---------- */
+  #title{
+    position:absolute;inset:0;display:flex;
+    align-items:center;justify-content:center;text-align:center;
+    background:rgba(0,0,0,.35);transition:opacity 1s ease;
+  }
+  #title.hide{opacity:0;pointer-events:none;}
+  #title .ch{
+    position:absolute;inset:0;width:100%;height:100%;object-fit:cover;
+    filter:grayscale(.4) brightness(.42) contrast(1.05);z-index:0;
+  }
+  .title-inner{
+    position:relative;z-index:1;display:flex;flex-direction:column;
+    align-items:center;justify-content:center;padding:24px;
+  }
+  #title h1{
+    font-size:clamp(52px,11vw,124px);letter-spacing:.28em;font-weight:500;
+    text-indent:.28em;text-shadow:0 0 60px rgba(111,227,196,.35);
+  }
+  #title .sub{
+    margin-top:22px;font-size:clamp(12px,1.6vw,15px);letter-spacing:.5em;
+    color:var(--ink-dim);text-indent:.5em;
+  }
+  #title .tag{
+    margin-top:44px;font-size:clamp(12px,1.5vw,14px);letter-spacing:.32em;
+    color:var(--accent);border:1px solid var(--line);padding:10px 22px;
+  }
+  #start{
+    margin-top:16px;cursor:pointer;font-family:inherit;
+    background:transparent;border:1px solid var(--accent);color:var(--accent);
+    padding:13px 42px;font-size:15px;letter-spacing:.4em;text-indent:.4em;
+    transition:all .25s ease;
+  }
+  #start:hover{background:var(--accent);color:#04120f;box-shadow:0 0 40px rgba(111,227,196,.4);}
+  .hint{margin-top:34px;font-size:12px;letter-spacing:.3em;color:#4c5a56;}
+
+  /* ---------- 守则卡 ---------- */
+  #rulesbtn{
+    position:absolute;top:22px;right:24px;z-index:20;cursor:pointer;
+    font-family:inherit;font-size:12px;letter-spacing:.34em;text-indent:.34em;
+    color:var(--ink-dim);background:rgba(4,10,10,.5);border:1px solid var(--line);
+    padding:9px 16px;transition:all .2s;
+  }
+  #rulesbtn:hover{color:var(--accent);border-color:var(--accent);}
+  /* ---------- 声音开关 ---------- */
+  #soundbtn{
+    position:absolute;top:22px;right:96px;z-index:20;cursor:pointer;
+    font-family:inherit;font-size:12px;letter-spacing:.34em;text-indent:.34em;
+    color:var(--ink-dim);background:rgba(4,10,10,.5);border:1px solid var(--line);
+    padding:9px 16px;transition:all .2s;white-space:nowrap;
+  }
+  #soundbtn:hover{color:var(--accent);border-color:var(--accent);}
+  #soundbtn.off{color:#9a7272;border-color:#4a3636;}
+  /* 真结局「天台」是暗底（深夜城市）—— 右上角两个按钮换成浅色字 + 半透明暗底，
+     否则深字压在城市画面上会糊成一片（亮底版踩过同一个坑，只是方向相反） */
+  #app.endlight #rulesbtn,#app.endlight #soundbtn{
+    color:#cfe0da;background:rgba(8,16,22,.46);border-color:rgba(150,205,186,.30);
+  }
+  #app.endlight #rulesbtn:hover,#app.endlight #soundbtn:hover{color:#ffffff;border-color:#8fd4bd;}
+  #app.endlight #soundbtn.off{color:#d39a9a;border-color:rgba(170,100,100,.44);}
+  .credit{margin-top:18px;font-size:11px;line-height:1.7;letter-spacing:.12em;color:#6b7a75;}
+  #rulescard{
+    position:absolute;inset:0;z-index:30;display:none;
+    align-items:center;justify-content:center;padding:24px;
+    background:rgba(0,0,0,.82);backdrop-filter:blur(6px);
+  }
+  #rulescard.show{display:flex;}
+  .paper{
+    max-width:560px;width:100%;
+    background:linear-gradient(180deg,#1a1712,#12100c);
+    border:1px solid rgba(180,160,120,.25);
+    box-shadow:0 30px 90px rgba(0,0,0,.8);
+    padding:clamp(26px,5vw,46px);
+    position:relative;
+    transform:rotate(-.4deg);
+  }
+  .paper::after{
+    content:"";position:absolute;inset:0;pointer-events:none;
+    background:radial-gradient(60% 40% at 20% 10%, rgba(120,90,40,.18), transparent 70%),
+               radial-gradient(50% 50% at 85% 90%, rgba(60,40,20,.22), transparent 70%);
+  }
+  .paper h2{
+    font-size:17px;letter-spacing:.3em;text-align:center;color:#c9b48a;
+    font-weight:500;margin-bottom:8px;text-indent:.3em;
+  }
+  .paper .num{text-align:center;font-size:11px;letter-spacing:.3em;color:#6b5c40;margin-bottom:26px;}
+  .paper ol{list-style:none;counter-reset:r;}
+  .paper li{
+    counter-increment:r;position:relative;padding:11px 0 11px 40px;
+    font-size:14.5px;line-height:1.75;color:#a89877;border-bottom:1px dashed rgba(120,100,70,.25);
+  }
+  .paper li::before{
+    content:"0" counter(r);position:absolute;left:0;top:11px;
+    color:#6b5c40;font-size:12px;letter-spacing:.1em;
+  }
+  .paper .close{
+    margin-top:26px;text-align:center;font-size:12px;letter-spacing:.3em;color:#6b5c40;cursor:pointer;
+  }
+  .paper .close:hover{color:#c9b48a;}
+
+  /* ---------- 结局 ---------- */
+  #app.ending .grade{background:radial-gradient(120% 90% at 50% 45%, rgba(255,255,255,.06) 0%, rgba(0,0,0,.82) 75%);}
+
+  /* 真结局 · 天台：深夜。底是「从楼道走出去」的结局视频，末帧停在整座城市上 */
+  /* 兜底：视频万一播不起来，用深夜的夜空渐变顶上（不再是亮天光） */
+  #app.endlight{background:radial-gradient(120% 95% at 50% 42%, #24313d 0%, #16202a 44%, #0a0f14 100%);}
+  #app.endlight #bg{display:none;}
+  /* 视频是"结局画面本身"，播完停住不动 → 不能被隐藏。
+     略压一点点亮度（.92），给上面的浅色文字让出对比度，但仍看得清城市 */
+  #app.endlight #vid{filter:saturate(1.02) contrast(1.0) brightness(.92);}
+  /* 可读性蒙版：一层暗纱（浅色文字压在城市灯火上才读得清）。
+     结局卡文案很长，会从画面中央铺到接近底部 —— 所以必须是「整幅暗纱 + 中心加强」。
+     城市灯火集中在中段（地平线那一带最亮），所以 26%~76% 压得最重；
+     底部留 .44，脚感的水泥地与屋顶仍看得见。 */
+  #app.endlight .grade{
+    display:block;mix-blend-mode:normal;
+    background:
+      linear-gradient(180deg,
+        rgba(4,8,12,.30) 0%,
+        rgba(4,8,12,.56) 26%,
+        rgba(4,8,12,.64) 52%,
+        rgba(4,8,12,.60) 76%,
+        rgba(4,8,12,.44) 100%),
+      radial-gradient(88% 56% at 50% 50%, rgba(4,8,12,.26) 0%, rgba(4,8,12,0) 100%);
+  }
+  #app.endlight .tint,#app.endlight #grain{display:none;}
+  /* 暗底浅字：三层黑色光晕 → 文字压在城市灯火的亮区上也读得清 */
+  #app.endlight .endcard .label{color:#8fd4bd;text-shadow:0 0 9px rgba(0,0,0,.95),0 0 22px rgba(0,0,0,.85),0 0 40px rgba(0,0,0,.7);}
+  #app.endlight .endcard .big{color:#f4faf7;text-shadow:0 0 12px rgba(0,0,0,.96),0 0 32px rgba(0,0,0,.88),0 0 62px rgba(0,0,0,.72);}
+  #app.endlight .endcard .body{color:#d6e4de;text-shadow:0 0 9px rgba(0,0,0,.96),0 0 20px rgba(0,0,0,.88),0 0 38px rgba(0,0,0,.72);}
+  #app.endlight .endcard button{border-color:rgba(150,205,186,.44);color:#e6f2ee;background:rgba(8,16,22,.54);text-shadow:0 0 10px rgba(0,0,0,.9);}
+  #app.endlight .endcard button:hover{border-color:#8fd4bd;color:#ffffff;background:rgba(8,16,22,.76);}
+  .endcard{
+    position:absolute;inset:0;display:flex;flex-direction:column;
+    align-items:center;justify-content:center;text-align:center;gap:26px;
+    opacity:0;transition:opacity 1.4s ease;pointer-events:none;
+  }
+  .endcard.show{opacity:1;}
+  .endcard .label{font-size:13px;letter-spacing:.55em;color:var(--accent);text-indent:.55em;}
+  .endcard .big{font-size:clamp(28px,5vw,52px);letter-spacing:.22em;text-indent:.22em;font-weight:400;}
+  .endcard .body{max-width:52ch;font-size:15px;line-height:1.9;color:var(--ink-dim);white-space:pre-wrap;}
+  .endcard button{
+    margin-top:8px;cursor:pointer;font-family:inherit;pointer-events:auto;
+    background:transparent;border:1px solid var(--line);color:var(--ink-dim);
+    padding:11px 32px;font-size:13px;letter-spacing:.36em;text-indent:.36em;transition:all .25s;
+  }
+  .endcard button:hover{border-color:var(--accent);color:var(--accent);}
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="stage">
+    <img id="bg" src="" alt="">
+    <video id="vid" playsinline muted preload="auto"></video>
+    <div class="grade"></div>
+    <div class="tint"></div>
+    <div id="grain"></div>
+    <div class="flash" id="flash"></div>
+  </div>
+
+  <div id="skipv">点 击 跳 过</div>
+
+  <button id="rulesbtn">守 则</button>
+  <button id="soundbtn">声 音</button>
+
+  <div id="panel">
+    <div id="speaker"></div>
+    <div id="text"></div>
+    <div id="choices"></div>
+  </div>
+
+  <!-- 结局卡 -->
+  <div class="endcard" id="endcard">
+    <div class="label" id="end-label"></div>
+    <div class="big" id="end-title"></div>
+    <div class="body" id="end-body"></div>
+    <!-- 默认 disabled：结局卡没浮现之前（尤其是真结局视频还在播时），
+         这个按钮虽然肉眼看不见，却是能点到的（.endcard 的 pointer-events:none
+         会被按钮自己的 auto 覆盖）。锁住它，才真正"看完才有得选"。 -->
+    <button id="end-restart" disabled>重 新 走 一 遍</button>
+  </div>
+
+  <!-- 标题页 -->
+  <div id="title">
+    <img class="ch" id="title-char" src="" alt="">
+    <div class="title-inner">
+      <h1>回廊</h1>
+      <div class="sub">一场规则怪谈</div>
+      <div class="tag">AI 互动影游 · 实验原型 v1.0</div>
+      <button id="start">进 入</button>
+      <div class="credit">铺底音乐：Eric Matyas · soundimage.org（CC BY 4.0）<br>结尾曲：作者自备素材 · 仅本地实验用</div>
+      <div class="hint">进 入 后 播 放 开 场 镜 头 · 点 击 画 面 跳 过 · 数字键 1 / 2 选择</div>
+    </div>
+  </div>
+
+  <!-- 守则卡 -->
+  <div id="rulescard">
+    <div class="paper">
+      <h2>住户安全守则</h2>
+      <div class="num">和平里 7 号楼 · 管委会</div>
+      <ol id="rules-list"></ol>
+      <div class="close" id="rules-close">— 收起 —</div>
+    </div>
+  </div>
+  <audio id="bgm" loop preload="auto"></audio>
+  <!-- 真结局「天台」专属收尾曲：只响一次，不循环 -->
+  <audio id="endmusic" preload="auto"></audio>
+</div>
+
+<script>
+const IMG = {
+  char: "__IMG_CHAR__",
+  m1:   "__IMG_M1__",
+  m2:   "__IMG_M2__",
+  m3:   "__IMG_M3__",
+  m4:   "__IMG_M4__",
+  /* m5 = 镜05 猫眼空走廊。专用于 d1 死亡节点：
+     原文案写「门外的走廊是空的」，不能复用 m2（门外有双脚在逼近） */
+  m5:   "__IMG_M5__"
+};
+
+/* 视频素材：只有"变化本身是剧情信息"的镜头才做成视频
+   位置分三类：
+     · 展现「当下正在发生的事」   → 可放节点进入画面（v1 醒来 / v2 敲门）
+     · 展现「选择之后的后果」     → 必须放在选择之后当过场（v4 电梯）
+     · 展现「结局本身」           → 单向叙事，播一次、停在末帧、结局卡压上去（v6 天台）
+   v1 = 镜01 醒来。开场进入画面
+   v2 = 镜02 敲门。n1 进入画面：灯灭、敲门 → 门外那双脚逼近
+   v4 = 镜04 电梯。「进电梯 → 循环结局」的过场
+   v6 = 镜06 真结局 天台。李自备素材：从昏暗楼道走出去、视野逐渐开阔。
+        「从闭塞到开阔」这个过程本身就是叙事，所以播一次、不回环；
+        走完停在末帧（整座城市），结局卡就压在那座城市上。 */
+const VID = {
+  v1: "__VID_M1__",
+  v2: "__VID_M2__",
+  v4: "__VID_M4__",
+  v6: "__VID_ZJ__"
+};
+
+const RULES = [
+  "走廊的灯熄灭时，请闭上眼，默数到十。",
+  "有人敲门时，先看猫眼——但在敲门声停止前，不要看。",
+  "电梯里永远只有你一个人。若里面已有别人，请等下一趟。",
+  "书房桌上的照片，若出现了你的脸，不要碰它。",
+  "每层楼梯都应一模一样。若某层的门牌号重复了，立刻回头。"
+];
+
+const NODES = {
+  start: {
+    img:"m1", video:"v1", speaker:"", flashIn:false,
+    text:"你在一段潮湿的走廊里睁开眼。\n脸颊贴着冰凉的瓷砖，头顶的日光灯一闪、一闪。\n\n你不记得自己是谁，也不记得为什么会在这里。\n只有墙上那张被水渍泡花的纸，还认得出几个字。",
+    choices:[{t:"站起来，扶着墙往前走", to:"n1"}]
+  },
+  n1: {
+    img:"m2", video:"v2", speaker:"回廊",
+    text:"灯，灭了。\n\n与此同时，身后的门被轻轻叩响。\n笃。笃。笃。\n\n守则说：有人敲门时，先看猫眼——但在敲门声停止前，不要看。",
+    choices:[
+      {t:"背对门，闭上眼，默数到十", to:"n2", ok:true},
+      {t:"凑到猫眼上，往外看一眼", to:"d1"}
+    ]
+  },
+  n2: {
+    img:"m3", speaker:"书房",
+    text:"数到十，灯亮了。敲门声不知何时停了。\n\n你推开走廊尽头那扇虚掩的门。屋里只有一张书桌，一盏台灯。\n光晕里，压着一张泛黄的旧照片。\n\n照片上的人，是你。",
+    choices:[
+      {t:"移开视线，不去碰那张照片", to:"n3", ok:true},
+      {t:"把照片拿起来，看得更清楚些", to:"d2"}
+    ]
+  },
+  n3: {
+    img:"m4", speaker:"尽头",
+    text:"走廊到了尽头。\n\n左手边，电梯门正开着，轿厢里亮着发绿的灯，空无一人。\n右手边，是通往楼下的楼梯间，黑得看不见台阶。\n\n守则说：电梯里永远只有你一个人。若里面已有别人，请等下一趟。",
+    choices:[
+      {t:"不去坐电梯，摸黑走下楼梯", to:"end_true", ok:true},
+      {t:"电梯是空的，走进去，按下 1 楼", to:"end_loop"}
+    ]
+  },
+
+  /* ---- 死亡 ---- */
+  d1: {
+    type:"death", img:"m5", back:"n1", rule:"违反 守则 02", flash:"red",
+    text:"你凑近猫眼。\n\n门外的走廊是空的。\n空得不像话——连你脚下的瓷砖都不见了。\n\n你忽然明白：猫眼看到的，从来不是门外的东西。",
+  },
+  d2: {
+    type:"death", img:"m3", back:"n2", rule:"违反 守则 04", flash:"red",
+    text:"你拿起照片。\n\n照片上的人眨了眨眼。\n你也眨了眨眼。\n\n然后你发现——你举起照片的手，和照片里举起照片的手，\n是同一只。",
+  },
+
+  /* ---- 结局 ---- */
+  end_true: {
+    type:"end", img:null, endvid:"v6", light:true, label:"真结局", title:"天 台",
+    text:"楼梯一层又一层，门牌号始终没有重复。\n\n不知走了多久，头顶忽然透进一线光。\n你推开那扇铁门——\n\n风是凉的。天是亮的。\n这里是天台，也是这栋楼唯一的出口。\n\n墙上的守则，最后一条写着：\n「每层楼梯都应一模一样。若某层的门牌号重复了，立刻回头。」\n\n而这一次，你一直往前走。"
+  },
+  end_loop: {
+    type:"end", img:"m1", video:"v4", label:"循环结局", title:"回 廊",
+    text:"电梯门在你身后合上。\n按下的「1」亮了，却一直没到。\n\n镜子里的你，比你慢了半拍。\n\n——\n\n灯，亮了。\n\n你在一段潮湿的走廊里睁开眼。\n脸颊贴着冰凉的瓷砖。\n\n你不记得自己是谁，也不记得为什么会在这里。"
+  }
+};
+
+/* ---------------- 引擎 ---------------- */
+const $ = s => document.querySelector(s);
+const app = $("#app"), bg = $("#bg"), panel = $("#panel"),
+      textEl = $("#text"), speakerEl = $("#speaker"), choicesEl = $("#choices"),
+      flashEl = $("#flash"), endcard = $("#endcard"),
+      vid = $("#vid"), skipHint = $("#skipv");
+
+let typing = null, fullText = "", busy = false;
+let vidDone = null;      // 非 null = 正处在视频阶段（回调待触发）
+let vidOK = false;       // 视频是否真的播起来了（用于降级兜底）
+let vidLock = false;     // true = 这段视频禁止跳过（真结局：必须看完才出结局卡）
+
+/* 换底图。注意：bg 上的 onload 必须"用完即摘"，
+   否则上一节点残留的处理器会在新图真正 load 时再触发一次，
+   把上一个节点重画一遍（画面/旁白串台）。seq 令牌做第二道保险。 */
+let bgSeq = 0;
+function setBg(key, cb){
+  const src = IMG[key];
+  if(!src){ cb && cb(); return; }
+  if(bg.getAttribute("src") === src){ bg.classList.add("show"); cb && cb(); return; }
+  const seq = ++bgSeq;
+  bg.onload = null;
+  bg.classList.remove("show");
+  setTimeout(()=>{
+    if(seq !== bgSeq) return;
+    bg.setAttribute("src", src);
+    const done = ()=>{
+      if(seq !== bgSeq) return;
+      bg.onload = null;
+      bg.classList.add("show");
+      cb && cb();
+    };
+    if(bg.complete) done(); else bg.onload = done;
+  }, 260);
+}
+
+/* ---------------- 视频层 ---------------- */
+function clearVideo(){
+  vid.onended = null;
+  vid.oncanplay = null;
+  vid.onloadeddata = null;
+  vid.loop = false;        /* 复位：只有天台那个常驻背景才循环 */
+  vidDone = null;
+  vidOK = false;
+  vidLock = false;
+  vid.classList.remove("show");
+  skipHint.classList.remove("show");
+}
+
+let vidSeq = 0;
+/* lockSkip = true：这段视频不可跳过。
+   不弹"点击跳过"提示，点击画面 / 空格 / Esc 也一律不响应，
+   只等它自己播完 —— 真结局「天台」用它：走出铁门那段必须看完，
+   结局文字才出现，也才轮到"重新走一遍"。 */
+function playVideo(key, done, lockSkip){
+  const src = VID[key];
+  if(!src){ done(); return; }
+  const seq = ++vidSeq;
+  vidDone = done;
+  vidOK = false;
+  vidLock = !!lockSkip;
+  if(vid.getAttribute("src") !== src) vid.setAttribute("src", src);
+  try{ vid.currentTime = 0; }catch(e){}
+  vid.classList.add("show");
+  bg.classList.remove("show");
+  if(!vidLock) skipHint.classList.add("show");
+  vid.onended = ()=>{ if(seq === vidSeq) finishVideo(); };
+  const p = vid.play();
+  if(p && p.then){
+    p.then(()=>{ if(seq === vidSeq) vidOK = true; }).catch(()=>{
+      if(seq !== vidSeq) return;
+      // 播放失败 → 降级：收起视频，交回静态图路径
+      vidOK = false;
+      vid.classList.remove("show");
+      finishVideo();
+    });
+  } else {
+    vidOK = true;
+  }
+}
+
+/* 常驻背景视频（真结局专用）：播完不撤、循环、不给"点击跳过"。
+   与 playVideo 的关键区别：
+     · loop = true 且不挂 onended —— 结局卡可以停很久
+     · 不显示 #skipv —— 这不是需要"跳过"的过场，而是结局画面本身
+     · done() 在视频真能出画时立刻回调（最多等 1.1s），流程不被卡死；
+       万一播不起来就收起视频，退回 endlight 的渐变天光兜底 */
+function playBgVideo(key, done){
+  const src = VID[key];
+  if(!src){ done(); return; }
+  const seq = ++vidSeq;
+  vid.onended = null;
+  vidDone = null;                       /* 不挂"过场完成"回调 */
+  vidLock = false;
+  if(vid.getAttribute("src") !== src) vid.setAttribute("src", src);
+  try{ vid.currentTime = 0; }catch(e){}
+  vid.loop = true;
+  vid.classList.add("show");
+  bg.classList.remove("show");
+  skipHint.classList.remove("show");
+
+  let settled = false;
+  const enter = ()=>{
+    if(settled || seq !== vidSeq) return;
+    settled = true;
+    done && done();
+  };
+  const p = vid.play();
+  if(p && p.catch){
+    p.then(()=>{ if(seq === vidSeq) vidOK = true; }).catch(()=>{
+      if(seq !== vidSeq) return;
+      vidOK = false;
+      vid.classList.remove("show");     /* 降级：退回渐变天光 */
+      vid.loop = false;
+      enter();
+    });
+  } else {
+    vidOK = true;
+  }
+  /* 首帧已就绪就立刻进结局卡；否则等 canplay，最多 1.1 秒 */
+  if(vid.readyState >= 2) enter();
+  else { vid.oncanplay = enter; vid.onloadeddata = enter; setTimeout(enter, 1100); }
+}
+
+function finishVideo(){
+  if(!vidDone) return;
+  vidLock = false;
+  skipHint.classList.remove("show");
+  vid.onended = null;
+  const d = vidDone; vidDone = null;
+  d();
+}
+
+/* 三个跳过入口（点击提示 / 点画面 / 键盘）最后都汇到这里。
+   vidLock 时直接忽略 —— 连 pause 都不做，画面照走。 */
+function skipVideo(){
+  if(!vidDone || vidLock) return;
+  try{ vid.pause(); }catch(e){}
+  finishVideo();
+}
+
+function doFlash(color){
+  if(!color) return;
+  flashEl.classList.toggle("red", color === "red");
+  flashEl.classList.add("on");
+  setTimeout(()=>flashEl.classList.remove("on"), 90);
+}
+
+function typeWriter(str, done){
+  clearInterval(typing);
+  fullText = str; textEl.textContent = "";
+  let i = 0;
+  typing = setInterval(()=>{
+    if(i >= str.length){ clearInterval(typing); typing=null; done && done(); return; }
+    textEl.textContent += str[i++];
+  }, 26);
+}
+
+function skipType(){
+  if(typing){ clearInterval(typing); typing=null; textEl.textContent = fullText; revealChoices(); }
+}
+
+let pendingChoices = [];
+function revealChoices(){
+  busy = false;
+  choicesEl.innerHTML = "";
+  pendingChoices.forEach((c, idx)=>{
+    if(c.ok){
+      const tag = document.createElement("span");
+      tag.className = "k"; tag.textContent = (idx+1)+".";
+      const btn = document.createElement("button");
+      btn.className = "choice";
+      btn.appendChild(tag); btn.appendChild(document.createTextNode(c.t));
+      btn.onclick = ()=>choose(c);
+      choicesEl.appendChild(btn);
+    } else {
+      const tag = document.createElement("span");
+      tag.className = "k"; tag.textContent = (idx+1)+".";
+      const btn = document.createElement("button");
+      btn.className = "choice";
+      btn.appendChild(tag); btn.appendChild(document.createTextNode(c.t));
+      btn.onclick = ()=>choose(c);
+      choicesEl.appendChild(btn);
+    }
+  });
+}
+
+function choose(c){
+  if(busy) return;
+  busy = true;
+  choicesEl.querySelectorAll(".choice").forEach(b=>b.classList.add("disabled"));
+  setTimeout(()=>goto(c.to), 240);
+}
+
+/* 把一个节点"画"出来：旁白 + 选项 */
+function paintNode(n){
+  app.classList.toggle("death", n.type === "death");
+  speakerEl.textContent = n.speaker || "";
+  speakerEl.style.color = (n.type === "death") ? "var(--danger)" : "var(--accent)";
+
+  let body = n.text;
+  if(n.type === "death"){
+    body += "\n\n[ " + n.rule + " ]";
+    pendingChoices = [{ t:"回溯 · 回到刚才的选择", to:n.back }];
+  } else {
+    pendingChoices = n.choices || [];
+  }
+  panel.classList.add("show");
+  setTimeout(()=>typeWriter(body, revealChoices), 120);
+}
+
+/* 视频播完（或没有视频）之后，才真正进入这个节点 */
+function enterNode(n){
+  if(n.type === "end"){
+    /* 真结局「天台」：叙事型结局视频 —— 播一次 → 停在末帧 → 结局卡浮现。
+       为什么不循环：这段视频是"从楼道走出去"的单向过程，回环会硬跳回黑楼道。
+       为什么播完不撤：末帧（整座城市）本身就是结局画面，结局卡就压在上面。 */
+    if(n.endvid){
+      /* 交棒就放在视频开始这一刻：走出铁门 = 换世界，声音跟着换。
+         若等视频走完（15 秒）才换，会晚一拍。showEnding 里还会再调一次，
+         由 MUSIC.toEnding 的幂等守卫吃掉。 */
+      MUSIC.toEnding();
+      playVideo(n.endvid, ()=>showEnding(n), true);   /* true = 不可跳过，必须看完整段 */
+      return;
+    }
+    /* 备用：常驻循环背景（结局卡压在循环画面上，不撤、不给跳过） */
+    if(n.bgvid){
+      playBgVideo(n.bgvid, ()=>showEnding(n));
+      return;
+    }
+    if(n.video){
+      // 过场视频结束 → 沉黑 → 亮起静态底图 → 结局卡
+      vid.classList.remove("show");
+      setTimeout(()=>{ setBg(n.img, ()=>showEnding(n)); }, 400);
+    } else {
+      setBg(n.img, ()=>showEnding(n));
+    }
+    return;
+  }
+
+  if(n.video && vidOK){
+    // 视频末帧仍停在画面上，直接出旁白与选项
+    paintNode(n);
+  } else {
+    vid.classList.remove("show");
+    setBg(n.img, ()=>paintNode(n));
+  }
+}
+
+function goto(id){
+  const n = NODES[id];
+  if(!n) return;
+  busy = true;
+  app.classList.remove("ending","endlight","death");
+  endcard.classList.remove("show");
+  panel.classList.remove("show");
+  $("#end-restart").disabled = true;   /* 锁住重来：等结局卡真正浮现再解锁 */
+  clearVideo();
+
+  if(n.type === "death") doFlash(n.flash);
+  SND.node(id, n);   /* 声音跟着节点走：灯灭/灯亮/电梯/死亡各有专属处理 */
+
+  const delay = n.video ? 240 : (n.type === "death" ? 320 : 420);
+  setTimeout(()=>{
+    if(n.video) playVideo(n.video, ()=>enterNode(n));
+    else        enterNode(n);
+  }, delay);
+}
+
+function showEnding(n){
+  app.classList.add(n.light ? "endlight" : "ending");
+  SND.ending(!!n.light);   /* 天台：天光起 · 循环：又回到电梯的金属声 */
+  if(n.light) MUSIC.toEnding();   /* 天台：铺底乐退场 → 结尾曲接管 */
+  $("#end-label").textContent = n.label;
+  $("#end-title").textContent = n.title;
+  $("#end-body").textContent = n.text;
+  endcard.classList.add("show");
+  /* 到这一刻（视频已播完、结局文字段落已落定）才把「重新走一遍」放开 */
+  $("#end-restart").disabled = false;
+  if(n.img) bg.classList.add("show");
+}
+
+/* 死亡回溯 / 视频跳过 */
+document.addEventListener("keydown", e=>{
+  if(vidDone){ skipVideo(); return; }
+  if(endcard.classList.contains("show")){
+    if(e.key === "Enter") location.reload();
+    return;
+  }
+  if(typing){ skipType(); return; }
+  const idx = parseInt(e.key, 10);
+  if(pendingChoices[idx-1]){
+    const btns = choicesEl.querySelectorAll(".choice");
+    if(btns[idx-1]) btns[idx-1].click();
+  }
+  if(e.key === "Escape") toggleRules();
+});
+
+/* 点击画面：先跳视频，再跳打字 */
+$("#stage").addEventListener("click", ()=>{
+  if(vidDone){ skipVideo(); return; }
+  if(typing) skipType();
+});
+panel.addEventListener("click", e=>{ if(e.target === panel) skipType(); });
+
+/* 守则卡 */
+const rulesCard = $("#rulescard");
+function toggleRules(){ rulesCard.classList.toggle("show"); }
+$("#rulesbtn").onclick = toggleRules;
+$("#rules-close").onclick = toggleRules;
+document.getElementById("rules-list").innerHTML = RULES.map(r=>"<li>"+r+"</li>").join("");
+
+/* 声音开关：标题页就可见，方便先静音再进入 */
+const soundBtn = $("#soundbtn");
+soundBtn.onclick = ()=>{
+  const m = SND.toggle();
+  soundBtn.classList.toggle("off", m);
+  soundBtn.textContent = m ? "已 静 音" : "声 音";
+};
+
+/* ==================== 声音系统 ====================
+   全部用 Web Audio 现场合成 —— 零音频素材、零体积、零版权风险。
+
+   为什么不下现成配乐：
+     1) 单页已 10MB，再塞 2MB 音频雪上加霜；
+     2) 规则怪谈要的是「声音设计」而不是「配乐」—— 恐怖片里真正让人发毛的，
+        是电灯嗡鸣突然停了、门外的声音突然没了、突然的死寂，不是一段旋律。
+
+   组成：4 层常驻环境声（随节点连续变化）+ 5 个音效。
+   浏览器 autoplay 策略：AudioContext 必须在用户手势里唤醒 ——
+   所以整套声音从「进入」那一下开始，这正好也是叙事的起点。
+   =================================================== */
+const SND = (function(){
+  let ctx = null, master = null, analyser = null, noise = null;
+  let ready = false, muted = false, lastMood = null;
+  const L = {};                 /* 常驻层：air / drone / lamp / sky */
+  const SFX_LOG = {};           /* 供自动化验证：音效触发次数 */
+  const MASTER_LV = 0.85;
+
+  function boot(){
+    if(ctx) return ctx;
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if(!AC) return null;
+    ctx = new AC();
+
+    master = ctx.createGain();
+    master.gain.value = 0;                        /* 从 0 淡入，避免开场爆音 */
+    const comp = ctx.createDynamicsCompressor();  /* 防削顶 */
+    comp.threshold.value = -16; comp.knee.value = 18; comp.ratio.value = 3.5;
+    analyser = ctx.createAnalyser();              /* 仅用于「验证真的有信号」 */
+    analyser.fftSize = 2048;
+    master.connect(comp); comp.connect(analyser); analyser.connect(ctx.destination);
+
+    /* 棕噪缓冲（2 秒，全局复用）—— 比白噪低沉，像空气而不是"沙沙" */
+    const len = Math.floor(ctx.sampleRate * 2);
+    noise = ctx.createBuffer(1, len, ctx.sampleRate);
+    const d = noise.getChannelData(0);
+    let last = 0;
+    for(let i = 0; i < len; i++){
+      const w = Math.random() * 2 - 1;
+      last = (last + 0.02 * w) / 1.02;
+      d[i] = last * 3.4;
+    }
+
+    /* 环境音层（air / drone / lamp / sky）已移除 ——
+       按李的要求，背景音乐改用网上真实恐怖音乐素材铺全篇。
+       保留下来的 procedural 部分只有「音效」：敲门 / 灯灭灯亮 / 死亡 / 电梯，
+       它们不是背景音乐，是给关键动作的声音强调。 */
+    ready = true;
+    return ctx;
+  }
+
+  function loopNoise(){
+    const s = ctx.createBufferSource();
+    s.buffer = noise; s.loop = true;
+    return s;
+  }
+
+
+  function ramp(param, v, tc){
+    const t = ctx.currentTime;
+    param.cancelScheduledValues(t);
+    param.setTargetAtTime(v, t, Math.max(0.02, tc));
+  }
+
+  /* ---------- 音效（一次性节点，播完自动释放） ---------- */
+  function burst(o){
+    if(!ready) return;
+    const t = ctx.currentTime + (o.at || 0);
+    const dur = o.dur || 0.25;
+    const f = ctx.createBiquadFilter();
+    f.type = o.type || "lowpass";
+    f.frequency.setValueAtTime(o.f, t);
+    if(o.q) f.Q.value = o.q;
+    if(o.sweep) f.frequency.exponentialRampToValueAtTime(o.sweep, t + dur);
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(o.peak || 0.5, t + (o.attack || 0.006));
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    const s = loopNoise();
+    s.connect(f); f.connect(g); g.connect(master);
+    s.start(t); s.stop(t + dur + 0.06);
+    if(o.log) SFX_LOG[o.log] = (SFX_LOG[o.log] || 0) + 1;
+  }
+
+  function tone(o){
+    if(!ready) return;
+    const t = ctx.currentTime + (o.at || 0);
+    const dur = o.dur || 0.4;
+    const os = ctx.createOscillator(); os.type = o.type || "sine";
+    os.frequency.setValueAtTime(o.f, t);
+    if(o.to) os.frequency.exponentialRampToValueAtTime(o.to, t + dur);
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(o.peak || 0.3, t + (o.attack || 0.01));
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    os.connect(g); g.connect(master);
+    os.start(t); os.stop(t + dur + 0.05);
+    if(o.log) SFX_LOG[o.log] = (SFX_LOG[o.log] || 0) + 1;
+  }
+
+  const SFX = {
+    /* 木门被叩响：三下。低频噪声 + 一点腔体共鸣（Q=5）做出"闷"的质感 */
+    knock: function(at){
+      [0, 0.34, 0.66].forEach(function(d, i){
+        burst({ at:(at||0)+d, dur:0.22, f:190, q:5, peak: i===2 ? 0.42 : 0.33, log:"knock" });
+      });
+    },
+    /* 灯灭：短促的电流"啧" */
+    lampOff: function(at){
+      burst({ at:at||0, dur:0.09, f:2400, type:"bandpass", q:3, peak:0.30, log:"lampOff" });
+    },
+    /* 灯亮：轻微"嗡"起 */
+    lampOn: function(at){
+      tone({ at:at||0, f:52, to:50, dur:0.5, peak:0.15, log:"lampOn" });
+    },
+    /* 死亡：低频下坠 + 噪声撞击。之后留白 —— 静默比声音更吓人 */
+    death: function(at){
+      burst({ at:at||0, dur:0.5, f:900, sweep:90, peak:0.55, log:"death" });
+      tone({ at:at||0, f:110, to:28, dur:1.1, peak:0.5, log:"deathTone" });
+    },
+    /* 电梯：钢缆/滑轨的吱呀 —— 窄带噪声缓慢下滑 */
+    elevator: function(at){
+      burst({ at:at||0, dur:1.6, f:2400, sweep:1200, type:"bandpass", q:7, peak:0.24, attack:0.25, log:"elevator" });
+      tone({ at:(at||0)+0.1, f:64, to:52, dur:1.4, peak:0.2, log:"elevatorLow" });
+    }
+  };
+
+  /* ---------- 对外接口 ---------- */
+  function start(){
+    if(!boot()) return false;
+    if(ctx.state === "suspended") ctx.resume();
+    ramp(master.gain, muted ? 0 : MASTER_LV, 1.4);
+    BGM.play();
+    return true;
+  }
+
+  function toggle(){
+    if(!ready) start();
+    muted = !muted;
+    if(ready) ramp(master.gain, muted ? 0 : MASTER_LV, 0.25);
+    BGM.setMuted(muted);
+    ENDMUS.setMuted(muted);
+    return muted;
+  }
+
+  function node(id, n){
+    if(!ready) return;
+    if(n && n.type === "death"){
+      SFX.death(0);
+            return;
+    }
+    if(id === "n1"){                 /* 「灯，灭了」+ 身后的门被轻轻叩响 */
+      SFX.lampOff(0);
+                    /* 灯管"啪"地垮掉（短时常数 → 干脆） */
+      SFX.knock(1.1);                /* 敲门声落在门前镜头上 */
+      return;
+    }
+    if(id === "n2"){ SFX.lampOn(0); return; }   /* 「数到十，灯亮了」 */
+    if(id === "n3"){ SFX.elevator(0.3); return; }
+      }
+
+  function ending(light){
+    if(!ready) return;
+    if(!light){ SFX.elevator(0); }  /* 循环结局：又回到电梯。铺底乐不关（循环还没结束）*/
+    /* 天台交棒交给 MUSIC.toEnding()，在 showEnding() 里调用 ——
+       它只碰 <audio> 元素，不受 WebAudio 是否 ready 影响 */
+  }
+
+  /* 供自动化验证读取真实状态（RMS 直接来自 AnalyserNode，不是自报） */
+  function probe(){
+    if(!ready) return null;
+    const buf = new Float32Array(analyser.fftSize);
+    analyser.getFloatTimeDomainData(buf);
+    let s = 0;
+    for(let i = 0; i < buf.length; i++) s += buf[i] * buf[i];
+    return {
+      state: ctx.state,
+      muted: muted,
+      master: master.gain.value,
+      rms: Math.sqrt(s / buf.length),
+      ready: ready,
+      bgm: BGM.probe(),
+      endmusic: ENDMUS.probe(),
+      music: MUSIC.probe(),
+      sfx: JSON.parse(JSON.stringify(SFX_LOG))
+    };
+  }
+
+  return { start:start, toggle:toggle, node:node, ending:ending, probe:probe,
+           get muted(){ return muted; }, get ready(){ return ready; } };
+})();
+
+/* ==================== 音乐：两条音轨（真实素材） ====================
+   ── 铺底乐 BGM ──
+   曲目：Eric Matyas — "Welcome to the Mansion"（soundimage.org）
+   授权：CC BY 4.0 —— 可自由使用（含商用），需署名。署名已标在标题页。
+   处理：原曲 71s，用 ffmpeg acrossfade 拼 3 遍成 3.5 分钟（避免循环过密），
+        128kbps 转码。素材与构建记录见 回廊/音频/ 目录。
+
+   ── 结尾曲 ENDMUS ──
+   素材：李自备（原文件 音乐\结尾音乐_2.mp3，69s）。授权未核实，仅本地实验用；
+        对外发布前必须换成已确认授权的曲子或取得授权。
+   用法：只在真结局「天台」响一次，不循环。
+
+   播放规则：
+     · 点「进入」开始，铺底乐全篇循环（BGM 的 el.loop = true）
+     · 真结局「天台」：铺底乐 3.5 秒淡出，1.8 秒后结尾曲以 2.6 秒淡入接管
+       —— 中间留一点空拍，不做硬切（常量 END_HANDOFF_MS / END_GAP_MS / END_FADE_IN_MS）
+     · 循环结局「循环」：铺底乐不关（循环还没结束），结尾曲不参与
+     · 右上角「声音」开关同时控制两条音轨与音效                */
+/* 音轨工厂：两条音轨（铺底乐 / 结尾曲）共用同一套淡入淡出与静音逻辑 */
+function makeTrack(id, src, opt){
+  const el = document.getElementById(id);
+  const target = opt.volume;
+  let timer = null, enabled = true;
+
+  el.setAttribute("src", src);
+  el.loop = !!opt.loop;
+
+  function fadeTo(v, ms, done){
+    clearInterval(timer);
+    const from = el.volume, t0 = Date.now();
+    if(ms <= 0){ el.volume = v; if(done) done(); return; }
+    timer = setInterval(function(){
+      const k = Math.min(1, (Date.now() - t0) / ms);
+      el.volume = Math.max(0, Math.min(1, from + (v - from) * k));
+      if(k >= 1){ clearInterval(timer); timer = null; if(done) done(); }
+    }, 40);
+  }
+
+  function play(ms){
+    if(!enabled) return;
+    try{ el.currentTime = 0; }catch(e){}
+    el.volume = 0;
+    const p = el.play();
+    if(p && p.catch) p.catch(function(){});   /* 被浏览器拦截时静默降级，不打断剧情 */
+    fadeTo(target, (ms === undefined ? 3500 : ms));
+  }
+
+  function stop(ms){
+    fadeTo(0, (ms === undefined ? 3000 : ms), function(){
+      try{ el.pause(); }catch(e){}
+    });
+  }
+
+  function setMuted(m){
+    enabled = !m;
+    if(m){ fadeTo(0, 400); }
+    else { if(el.paused){ play(); } else { fadeTo(target, 700); } }
+  }
+
+  function probe(){
+    return {
+      paused: el.paused,
+      currentTime: el.currentTime,
+      volume: el.volume,
+      loop: el.loop,
+      duration: (isFinite(el.duration) ? el.duration : null)
+    };
+  }
+
+  return { play: play, stop: stop, setMuted: setMuted, probe: probe };
+}
+
+const BGM    = makeTrack("bgm",      "__BGM__",      { volume: 0.50, loop: true  });
+const ENDMUS = makeTrack("endmusic", "__ENDMUSIC__", { volume: 0.62, loop: false });
+
+/* 真结局「天台」交棒：铺底乐先退，1.8 秒后结尾曲进来（留一点空拍，不硬切） */
+const END_HANDOFF_MS = 1800, END_GAP_MS = 3500, END_FADE_IN_MS = 2600;
+const MUSIC = (function(){
+  let handoff = null, handed = false;
+  /* 幂等：真结局现在会在「视频开始」处先调一次（走出铁门 = 换世界），
+     showEnding 里还会再调一次 —— 由 handed 守卫吃掉，避免交棒被重启两次 */
+  function toEnding(){
+    if(handed) return;
+    handed = true;
+    BGM.stop(END_GAP_MS);
+    clearTimeout(handoff);
+    handoff = setTimeout(function(){ ENDMUS.play(END_FADE_IN_MS); }, END_HANDOFF_MS);
+  }
+  function probe(){
+    return { handoffPending: handoff !== null };
+  }
+  return { toEnding: toEnding, probe: probe };
+})();
+
+$("#title-char").setAttribute("src", IMG.char);
+$("#start").onclick = ()=>{
+  SND.start();   /* 必须在用户手势里唤醒 AudioContext（浏览器 autoplay 政策） */
+  $("#title").classList.add("hide");
+  setTimeout(()=>{ $("#title").style.display="none"; }, 1000);
+  goto("start");
+};
+$("#end-restart").onclick = ()=> location.reload();
+
+/* 预载：图片 + 视频 */
+Object.values(IMG).forEach(u=>{ const i = new Image(); i.src = u; });
+(function preloadVideo(){
+  const first = Object.values(VID)[0];
+  if(!first) return;
+  vid.setAttribute("src", first);
+  try{ vid.load(); }catch(e){}
+})();
+</script>
+</body>
+</html>

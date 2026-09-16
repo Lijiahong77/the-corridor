@@ -1,0 +1,14 @@
+# 统一换行，避免 Windows 提交时把整个文件标成"已修改"
+* text=auto eol=lf
+
+# 媒体是二进制，别让 git 做换行转换
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.mp4  binary
+*.mp3  binary
+
+# 自包含单页：内部是巨型 base64 data URI（20MB 挤在极少数超长行里）
+# 标成二进制，省掉 git 逐行扫描的开销；反正本来也 diff 不了
+回廊/回廊_互动原型.html   -text
+回廊/回廊_BGM选曲试听.html -text
